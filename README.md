@@ -19,6 +19,7 @@ Traditional authentication systems require sending passwords to servers for veri
 - **ZK Circuits:** Circom
 - **Proof System:** SnarkJS (Groth16)
 - **Backend:** Node.js, Express.js
+- **Frontend:** HTML, SCSS, JavaScript
 - **Cryptography:** Poseidon Hash Function
 
 ## How It Works
@@ -30,16 +31,14 @@ Traditional authentication systems require sending passwords to servers for veri
 
 ## Project Structure
 ```
-├── circuits/
-│   └── auth.circom          # ZK circuit for password verification
-├── build/
-│   ├── auth.wasm            # Compiled circuit
-│   ├── auth.zkey            # Proving key
-│   └── verification_key.json
-├── src/
-│   ├── prover.js            # Proof generation logic
-│   ├── verifier.js          # Proof verification logic
-│   └── server.js            # Express API endpoints
+├── backend/               # Node.js/Express server for proof verification
+├── circuits/              # Circom ZK circuits for authentication
+├── frontend/              # Client-side UI for proof generation
+├── generate_input.js      # Script to generate circuit inputs
+├── inputs.json            # Sample input for ZK circuit
+├── proof.json             # Generated ZK proof
+├── public.json            # Public signals output
+├── witness.wtns           # Witness file from circuit execution
 ├── package.json
 └── README.md
 ```
@@ -65,20 +64,42 @@ Traditional authentication systems require sending passwords to servers for veri
    npm install
 ```
 
-3. Compile the circuit
+3. Generate input for the circuit
+```bash
+   node generate_input.js
+```
+
+4. Compile the circuit
 ```bash
    circom circuits/auth.circom --r1cs --wasm --sym -o build
 ```
 
-4. Generate keys (trusted setup)
+5. Generate witness
 ```bash
-   snarkjs groth16 setup build/auth.r1cs pot12_final.ptau build/auth.zkey
-   snarkjs zkey export verificationkey build/auth.zkey build/verification_key.json
+   snarkjs wtns calculate build/auth_js/auth.wasm inputs.json witness.wtns
 ```
 
-5. Start the server
+6. Generate proof
 ```bash
+   snarkjs groth16 prove build/auth.zkey witness.wtns proof.json public.json
+```
+
+7. Verify proof
+```bash
+   snarkjs groth16 verify build/verification_key.json public.json proof.json
+```
+
+8. Start the backend server
+```bash
+   cd backend
+   npm install
    npm start
+```
+
+9. Start the frontend
+```bash
+   cd frontend
+   # Open index.html in browser or use a local server
 ```
 
 ## API Endpoints
