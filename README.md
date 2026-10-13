@@ -1,127 +1,100 @@
 # Zero-Knowledge Password Authentication
 
-A secure authentication protocol that verifies user credentials without ever exposing the actual password, using zero-knowledge proofs (ZKPs).
+A login demo where the browser proves it knows your password using a zero-knowledge proof, so the password never reaches the server.
 
-## Overview
+## Why it exists
 
-Traditional authentication systems require sending passwords to servers for verification, creating security vulnerabilities. This project implements a ZKP-based approach where users prove they know the password without revealing it.
+In a normal login, the password is sent to the server to be checked. This project tries a different approach: you register a hash of your password, and at login you prove you know a password that matches that hash without revealing it. I built it to learn how zero-knowledge circuits, proofs and verification fit together in a working web app.
 
-## Features
+## How it works
 
-- **Zero-Knowledge Proofs:** Verify credentials without exposing sensitive data
-- **Poseidon Hashing:** Cryptographic hash function optimized for ZK circuits
-- **Proof Generation:** Client-side proof creation using SnarkJS
-- **Proof Verification:** Server-side verification without accessing plaintext passwords
-- **Optimized Pipeline:** 25% reduction in verification latency
+The circuit (`circuits/password_auth.circom`) has one private input, the password, and one public input, the password hash. It checks that the Poseidon hash of the password equals the public hash.
 
-## Tech Stack
+1. **Register.** The browser hashes the password with Poseidon and sends only the email, name and hash to `/register`. The server stores them in `backend/users.json`.
+2. **Log in.** The browser fetches the stored hash from `/get-user`, then builds a Groth16 proof in the browser with SnarkJS. The proof uses the compiled circuit (`password_auth.wasm`) and the proving key (`password_auth_final.zkey`).
+3. **Verify.** The browser sends the proof to `/verify`. The server checks it against `circuits/verification_key.json` and replies with success or failure. The browser then confirms the proof's public hash matches the stored one.
 
-- **ZK Circuits:** Circom
-- **Proof System:** SnarkJS (Groth16)
-- **Backend:** Node.js, Express.js
-- **Frontend:** HTML, SCSS, JavaScript
-- **Cryptography:** Poseidon Hash Function
+API:
 
-## How It Works
+| Method | Endpoint | What it does |
+|---|---|---|
+| POST | `/register` | Stores email, name and password hash |
+| POST | `/get-user` | Returns the stored record for an email |
+| POST | `/verify` | Verifies a Groth16 proof |
 
-1. **Setup Phase:** Generate proving and verification keys from Circom circuits
-2. **Registration:** User's password is hashed using Poseidon and stored
-3. **Authentication:** User generates a ZK proof that they know the password
-4. **Verification:** Server verifies the proof without learning the password
+Folders:
 
-## Project Structure
-```
-├── backend/               # Node.js/Express server for proof verification
-├── circuits/              # Circom ZK circuits for authentication
-├── frontend/              # Client-side UI for proof generation
-├── generate_input.js      # Script to generate circuit inputs
-├── inputs.json            # Sample input for ZK circuit
-├── proof.json             # Generated ZK proof
-├── public.json            # Public signals output
-├── witness.wtns           # Witness file from circuit execution
-├── package.json
-└── README.md
-```
+| Path | Contents |
+|---|---|
+| `circuits/` | The Circom circuit, compiled files, keys and the verification key |
+| `backend/` | Express server (port 3001) |
+| `frontend/` | React 19 app with SCSS pages for register, login and dashboard |
+| `generate_input.js` | Writes `inputs.json` for the sample password |
+| `inputs.json`, `witness.wtns`, `proof.json`, `public.json` | Output from a sample run |
 
-## Getting Started
+## How to run it
 
-### Prerequisites
+You need Node.js (`.nvmrc` says 18, and I tested with 20), [Circom](https://docs.circom.io/) 2.0 or newer, and the SnarkJS command line (`npm install -g snarkjs`).
 
-- Node.js 16+
-- Circom 2.0+
-- SnarkJS
-
-### Installation
-
-1. Clone the repository
 ```bash
-   git clone https://github.com/ankush1699/Zero-Knowledge-Password-Authentication.git
-   cd Zero-Knowledge-Password-Authentication
+npm install   # installs circomlib and circomlibjs
 ```
 
-2. Install dependencies
+**Check the proof pipeline from the command line.** This uses the circuit files already in the repo.
+
 ```bash
-   npm install
+node generate_input.js
+snarkjs wtns calculate circuits/password_auth_js/password_auth.wasm inputs.json witness.wtns
+snarkjs groth16 prove circuits/password_auth_final.zkey witness.wtns proof.json public.json
+snarkjs groth16 verify circuits/verification_key.json public.json proof.json
 ```
 
-3. Generate input for the circuit
+The last command prints `OK!` when the proof is valid.
+
+**Rebuild the circuit (optional).**
+
 ```bash
-   node generate_input.js
+circom circuits/password_auth.circom --r1cs --wasm --sym -o circuits -l node_modules/circomlib/circuits
+snarkjs groth16 setup circuits/password_auth.r1cs circuits/pot12_final.ptau circuits/password_auth_0000.zkey
+snarkjs zkey contribute circuits/password_auth_0000.zkey circuits/password_auth_final.zkey --name="first contribution" -e="type some random text here"
+snarkjs zkey export verificationkey circuits/password_auth_final.zkey circuits/verification_key.json
+cp circuits/password_auth_js/password_auth.wasm circuits/password_auth_final.zkey frontend/public/
 ```
 
-4. Compile the circuit
+The last line copies the new circuit and key to where the browser app loads them. Do not run `generate_witness.js` directly: the root `package.json` sets `"type": "module"`, which breaks it. Use `snarkjs wtns calculate` as shown above.
+
+**Run the app.**
+
 ```bash
-   circom circuits/auth.circom --r1cs --wasm --sym -o build
+cd backend && npm install && npm start    # http://localhost:3001
 ```
 
-5. Generate witness
+In a second terminal:
+
 ```bash
-   snarkjs wtns calculate build/auth_js/auth.wasm inputs.json witness.wtns
+cd frontend && npm install && DISABLE_ESLINT_PLUGIN=true npm start    # http://localhost:3000
 ```
 
-6. Generate proof
-```bash
-   snarkjs groth16 prove build/auth.zkey witness.wtns proof.json public.json
-```
+The `DISABLE_ESLINT_PLUGIN=true` part is needed because the repo has no lockfile, so a fresh install pulls newer lint packages that fail with a `jest/globals` error. Without it, the dev server reports one compile error. The frontend calls the backend at `http://localhost:3001`.
 
-7. Verify proof
-```bash
-   snarkjs groth16 verify build/verification_key.json public.json proof.json
-```
+`inputs.json` uses a sample password (`123456`), and `backend/users.json` holds made-up test accounts. Both are sample data.
 
-8. Start the backend server
-```bash
-   cd backend
-   npm install
-   npm start
-```
+## Results
 
-9. Start the frontend
-```bash
-   cd frontend
-   # Open index.html in browser or use a local server
-```
+I tested this on a clean copy of the repo:
 
-## API Endpoints
+- The command-line steps above work. The proof for the sample input verifies, and the backend's `/verify` returns `{"success":true}` for it.
+- In the browser, I registered a test user, logged out and logged back in. The browser built a proof and the server verified it. A wrong password was rejected with "Login failed."
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/register` | Register new user with hashed password |
-| POST | `/authenticate` | Verify ZK proof for authentication |
+No performance measurements are included.
 
-## Use Cases
+## Known limitations (demo project)
 
-- Secure login systems
-- Privacy-preserving identity verification
-- Passwordless authentication
-- Blockchain wallet authentication
+- The server checks that a proof is valid, but not that it belongs to the account. The match against the stored hash is done in the browser, and the login state is kept in `localStorage`.
+- `/get-user` returns the stored hash for any email.
+- The stored value is an unsalted Poseidon hash, so a weak password could be guessed offline from it.
+- Proofs are not tied to a one-time challenge, so a captured proof could be replayed.
 
-## References
+## Tech stack
 
-- [Circom Documentation](https://docs.circom.io/)
-- [SnarkJS GitHub](https://github.com/iden3/snarkjs)
-- [Poseidon Hash](https://www.poseidon-hash.info/)
-
-## Contact
-
-**Ankush Chaudhary** — [LinkedIn](https://linkedin.com/in/ankush1699) | ankushchaudhary.ac99@gmail.com
+Circom, SnarkJS (Groth16), Poseidon hash (circomlib), Node.js with Express, React 19 with SCSS.
